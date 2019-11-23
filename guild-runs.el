@@ -1,4 +1,5 @@
 (require 'dash)
+(require 'guild-utils)
 
 (defvar guild-runs-format [("id" 16 t) ("op" 30 t) ("label" 50 t) ("status" 16 t) ("timestamp" 20 t)]
   "Guild Run tabular list default columns.")
@@ -6,9 +7,12 @@
 (defun guild-runs-refresh ()
   "Refresh the guild runs list."
   (interactive)
-  (setq tabulated-list-entries (guild-run-entries)))
+  (let ((default-directory guild-directory))
+    (setq tabulated-list-entries (guild-run-entries))))
 
-(defun guild-run-entries ()
+(defun guild-run-entries (&optional directory)
+  (unless directory
+    (setq directory default-directory))
   (let* ((guild-runs-json (shell-command-to-string "guild runs --json"))
          (json-object-type 'hash-table)
          (json-array-type 'list)
@@ -50,11 +54,11 @@
   (if async
       (apply #'start-process buffer-name buffer-name "guild" (append '() args))
     (apply #'call-process "guild" nil buffer-name nil (append '() args)))
-  (pop-to-buffer buffer-name))
+  (guild--pop-to-buffer buffer-name))
 
 (defun guild-runs--tensorboard ()
-  (interactive)
   "Starts a process for tensorboard."
+  (interactive)
   (let* ((run (guild--get-run-under-cursor))
          (buffer-name (format "*guild-tensorboard - %s*" run)))
     (guild--exec buffer-name t (list "tensorboard" run))))
@@ -68,9 +72,12 @@
 
 (setq guild-runs-mode-map (let ((map (make-sparse-keymap)))
                             (define-key map (kbd "RET") 'guild-runs--run-details)
+                            (define-key map (kbd "t") 'guild-runs--tensorboard)
                             (define-key map (kbd "?") 'guild-runs--help-popup)
-                            map)
-      )
+                            map))
+
+(defvar-local guild-directory nil "Directory for guild run.")
+
 (defvar guild-runs-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "RET") 'guild-runs--run-details)
@@ -84,13 +91,16 @@
   (setq tabulated-list-padding 2)
   (use-local-map guild-runs-mode-map)
   (setq tabulated-list-entries #'guild-run-entries)
+  (setq guild-directory default-directory)
   (add-hook 'tabulated-list-revert-hook 'guild-runs-refresh nil t)
   (tabulated-list-init-header))
 
 (defun guild-runs ()
   (interactive)
-  (pop-to-buffer "*guild-runs*" nil)
-  (guild-runs-mode)
-  (tabulated-list-print t))
+  (let ((buffer-name (format "*guild-runs : %s*" default-directory)))
+    (guild--pop-to-buffer buffer-name)
+    (guild-runs-mode)
+    (tabulated-list-print t)))
+
 
 (provide 'guild-runs)
