@@ -22,8 +22,8 @@
          (status (gethash "status" entry))
          (label (or (gethash "label" entry) ""))
          (timestamp (guild-run-parse-timestamp (gethash "started" entry)))
-         )
-    `(nil [,id ,op ,label ,status ,timestamp])))
+         (contents (vector id op label status timestamp)))
+    (list id contents)))
 
 (defun guild-run-parse-timestamp (timestamp)
   (let* ((ts (/ timestamp 1000000))
@@ -33,10 +33,57 @@
 (defun guild-run-parse-opref (opref)
   (string-join (-take-last 2 (split-string opref)) ":"))
 
-(define-derived-mode guild-runs-mode tabulated-list-mode "Guild Runs"
+(defun guild--get-run-under-cursor ()
+  (string-trim (aref (tabulated-list-get-entry) 0)))
+
+(defun guild-runs--run-details ()
+  "Get the details of the run under cursor."
+  (interactive)
+  (let* ((run (guild--get-run-under-cursor))
+         (buffer-name (format "*guild-run - run - %s*" run)))
+    (guild--exec buffer-name nil (list "runs" "info" run))))
+
+(defun guild--exec (buffer-name async args)
+  "Executes commands, and recreates buffer where necessary."
+  (when (get-buffer buffer-name)
+    (kill-buffer buffer-name))
+  (if async
+      (apply #'start-process buffer-name buffer-name "guild" (append '() args))
+    (apply #'call-process "guild" nil buffer-name nil (append '() args)))
+  (pop-to-buffer buffer-name))
+
+(defun guild-runs--tensorboard ()
+  (interactive)
+  "Starts a process for tensorboard."
+  (let* ((run (guild--get-run-under-cursor))
+         (buffer-name (format "*guild-tensorboard - %s*" run)))
+    (guild--exec buffer-name t (list "tensorboard" run))))
+
+(define-transient-command guild-runs--help-popup ()
+  "Guild Runs Menu"
+  ["Actions"
+   ("ENTER" "Run details" guild-runs--run-details)
+   ("t" "Tensorboard" guild-runs--tensorboard)
+   ])
+
+(setq guild-runs-mode-map (let ((map (make-sparse-keymap)))
+                            (define-key map (kbd "RET") 'guild-runs--run-details)
+                            (define-key map (kbd "?") 'guild-runs--help-popup)
+                            map)
+      )
+(defvar guild-runs-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") 'guild-runs--run-details)
+    (define-key map (kbd "?") 'guild-runs--help-popup)
+    map)
+  "Keymap for guild-runs-mode.")
+
+(define-derived-mode guild-runs-mode tabulated-list-mode "Guild-Runs"
   "Major mode for handling guild runs."
   (setq tabulated-list-format guild-runs-format)
   (setq tabulated-list-padding 2)
+  (use-local-map guild-runs-mode-map)
+  (setq tabulated-list-entries #'guild-run-entries)
   (add-hook 'tabulated-list-revert-hook 'guild-runs-refresh nil t)
   (tabulated-list-init-header))
 
